@@ -1,0 +1,5 @@
+**/.env
+**/.idx
+**/__pycache__
+**/myenv
+.vscode

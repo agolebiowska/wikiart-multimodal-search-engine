@@ -1,0 +1,5 @@
+kfp==2.4.0
+google-cloud-aiplatform==1.38.1
+google-cloud-storage==2.14.0
+google-cloud-logging==3.9.0
+Pillow==10.1.0

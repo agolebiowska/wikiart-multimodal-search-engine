@@ -1,0 +1,296 @@
+# PIPELINE DEFINITION
+# Name: pipeline-wikiart-search-engine
+# Description: Pipeline for deploying Wikiart search engine
+# Inputs:
+#    all_prefix: str
+#    data_bucket: str
+#    dimensions: int
+#    fail_prefix: str
+#    idx_prefix: str
+#    index_endpoint_name: str
+#    index_name: str
+#    location: str
+#    network: str
+#    project_id: str
+#    project_number: str
+#    vertex_bucket: str
+components:
+  comp-deploy-index:
+    executorLabel: exec-deploy-index
+    inputDefinitions:
+      parameters:
+        idx_prefix:
+          parameterType: STRING
+        index_endpoint_name:
+          parameterType: STRING
+        index_id:
+          parameterType: STRING
+        location:
+          parameterType: STRING
+        network:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        project_number:
+          parameterType: STRING
+        vertex_bucket:
+          parameterType: STRING
+  comp-generate-embeddings:
+    executorLabel: exec-generate-embeddings
+    inputDefinitions:
+      parameters:
+        all_prefix:
+          parameterType: STRING
+        data_bucket:
+          parameterType: STRING
+        fail_prefix:
+          parameterType: STRING
+        idx_prefix:
+          parameterType: STRING
+        location:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        vertex_bucket:
+          parameterType: STRING
+  comp-update-index:
+    executorLabel: exec-update-index
+    inputDefinitions:
+      parameters:
+        dimensions:
+          parameterType: NUMBER_INTEGER
+        idx_prefix:
+          parameterType: STRING
+        index_name:
+          parameterType: STRING
+        location:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        vertex_bucket:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+defaultPipelineRoot: gs://wikiart-vertex/pipeline_root/artifacts
+deploymentSpec:
+  executors:
+    exec-deploy-index:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_index
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_index(project_id: str,\n                 project_number:\
+          \ str,\n                 location: str,\n                 network: str,\n\
+          \                 vertex_bucket: str,\n                 idx_prefix: str,\n\
+          \                 index_endpoint_name: str,\n                 index_id:\
+          \ str):\n\n    import uuid\n    from google.cloud import aiplatform\n\n\
+          \    aiplatform.init(project=project_id, location=location)\n\n    endpoint\
+          \ = aiplatform.MatchingEngineIndexEndpoint.list(\n        filter=f\"display_name={index_endpoint_name}\"\
+          \n    )\n    if len(endpoint) <= 0:\n        endpoint = aiplatform.MatchingEngineIndexEndpoint.create(\n\
+          \            display_name=index_endpoint_name,\n            public_endpoint_enabled=False,\n\
+          \            project=project_id,\n            location=location,\n     \
+          \       network=f\"projects/{project_number}/global/networks/{network}\"\
+          \n        )\n    else:\n        endpoint_name = endpoint[0].name\n     \
+          \   endpoint = aiplatform.MatchingEngineIndexEndpoint(\n            index_endpoint_name=endpoint_name\n\
+          \        )\n\n    index = aiplatform.MatchingEngineIndex(index_name=index_id)\n\
+          \    endpoint.deploy_index(\n        index=index, deployed_index_id=f\"\
+          idx_{uuid.uuid4().hex}\")\n\n"
+        image: python:3.9-slim
+    exec-generate-embeddings:
+      container:
+        args:
+        - --project_id
+        - '{{$.inputs.parameters[''project_id'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --data_bucket
+        - '{{$.inputs.parameters[''data_bucket'']}}'
+        - --vertex_bucket
+        - '{{$.inputs.parameters[''vertex_bucket'']}}'
+        - --all_prefix
+        - '{{$.inputs.parameters[''all_prefix'']}}'
+        - --idx_prefix
+        - '{{$.inputs.parameters[''idx_prefix'']}}'
+        - --fail_prefix
+        - '{{$.inputs.parameters[''fail_prefix'']}}'
+        command:
+        - python3
+        - /generate_embeddings/src/main.py
+        image: us-central1-docker.pkg.dev/test-vertex-400014/repo-wikiart/generate-embeddings-component:latest
+    exec-update-index:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - update_index
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef update_index(project_id: str,\n                 location: str,\n\
+          \                 vertex_bucket: str,\n                 idx_prefix: str,\n\
+          \                 index_name: str,\n                 dimensions: int) ->\
+          \ str:\n\n    from google.cloud import aiplatform\n\n    aiplatform.init(project=project_id,\
+          \ location=location)\n\n    index = aiplatform.MatchingEngineIndex.list(\n\
+          \        location=location,\n        project=project_id,\n        filter=f'display_name=\"\
+          {index_name}\"'\n    )\n    if len(index) <= 0:\n        index = aiplatform.MatchingEngineIndex.create_tree_ah_index(\n\
+          \            display_name=index_name,\n            project=project_id,\n\
+          \            location=location,\n            contents_delta_uri=f\"gs://{vertex_bucket}/{idx_prefix}/\"\
+          ,\n            dimensions=dimensions,\n            approximate_neighbors_count=150,\n\
+          \            distance_measure_type=\"DOT_PRODUCT_DISTANCE\",\n         \
+          \   leaf_node_embedding_count=500,\n            leaf_nodes_to_search_percent=7\n\
+          \        )\n        index_id = index.name\n    else:\n        index_id =\
+          \ index[0].name\n        index = aiplatform.MatchingEngineIndex(index_name=index_id)\n\
+          \        index.update_embeddings(f\"gs://{vertex_bucket}/{idx_prefix}/\"\
+          )\n\n    return index_id\n\n"
+        image: python:3.9-slim
+pipelineInfo:
+  description: Pipeline for deploying Wikiart search engine
+  name: pipeline-wikiart-search-engine
+root:
+  dag:
+    tasks:
+      deploy-index:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-deploy-index
+        dependentTasks:
+        - update-index
+        inputs:
+          parameters:
+            idx_prefix:
+              componentInputParameter: idx_prefix
+            index_endpoint_name:
+              componentInputParameter: index_endpoint_name
+            index_id:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: update-index
+            location:
+              componentInputParameter: location
+            network:
+              componentInputParameter: network
+            project_id:
+              componentInputParameter: project_id
+            project_number:
+              componentInputParameter: project_number
+            vertex_bucket:
+              componentInputParameter: vertex_bucket
+        taskInfo:
+          name: deploy-index
+      generate-embeddings:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-embeddings
+        inputs:
+          parameters:
+            all_prefix:
+              componentInputParameter: all_prefix
+            data_bucket:
+              componentInputParameter: data_bucket
+            fail_prefix:
+              componentInputParameter: fail_prefix
+            idx_prefix:
+              componentInputParameter: idx_prefix
+            location:
+              componentInputParameter: location
+            project_id:
+              componentInputParameter: project_id
+            vertex_bucket:
+              componentInputParameter: vertex_bucket
+        taskInfo:
+          name: generate-embeddings
+      update-index:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-update-index
+        dependentTasks:
+        - generate-embeddings
+        inputs:
+          parameters:
+            dimensions:
+              componentInputParameter: dimensions
+            idx_prefix:
+              componentInputParameter: idx_prefix
+            index_name:
+              componentInputParameter: index_name
+            location:
+              componentInputParameter: location
+            project_id:
+              componentInputParameter: project_id
+            vertex_bucket:
+              componentInputParameter: vertex_bucket
+        taskInfo:
+          name: update-index
+  inputDefinitions:
+    parameters:
+      all_prefix:
+        parameterType: STRING
+      data_bucket:
+        parameterType: STRING
+      dimensions:
+        parameterType: NUMBER_INTEGER
+      fail_prefix:
+        parameterType: STRING
+      idx_prefix:
+        parameterType: STRING
+      index_endpoint_name:
+        parameterType: STRING
+      index_name:
+        parameterType: STRING
+      location:
+        parameterType: STRING
+      network:
+        parameterType: STRING
+      project_id:
+        parameterType: STRING
+      project_number:
+        parameterType: STRING
+      vertex_bucket:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.4.0
