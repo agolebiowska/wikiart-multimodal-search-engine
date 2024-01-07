@@ -205,7 +205,7 @@ def create_ui():
                                         label="Number of results",
                                         value=20,
                                         info="How many results to show.")
-                clear = gr.ClearButton(components=[image, genres_filter])
+                clear = gr.ClearButton(value="Clear input", components=[image, genres_filter])
                 find_by_image_btn = gr.Button("Get images", variant="primary", icon="icon_search.svg")
 
             images = gr.Gallery(label="Images",
@@ -227,7 +227,7 @@ def create_ui():
                                         label="Number of results",
                                         value=20,
                                         info="How many results to show.")
-                clear = gr.ClearButton(components=[text, genres_filter])
+                clear = gr.ClearButton(value="Clear input", components=[text, genres_filter])
                 find_by_text_btn = gr.Button("Get images", variant="primary", icon="icon_search.svg")
 
             images = gr.Gallery(label="Images",
